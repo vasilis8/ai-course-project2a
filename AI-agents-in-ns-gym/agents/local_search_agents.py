@@ -104,12 +104,101 @@ class TetsingAgent(LocalSearchAgent):
 
 class HillClimbingAgent(LocalSearchAgent):
     name = 'Hill_Climbing'
-    #TODO
 
-        
+    def __init__(self, num_actions, domain_name):
+        super().__init__(num_actions, domain_name)
+
+    def act(self, env):
+        best_action = -1
+        best_value = -np.inf
+
+        for action in range(self.num_actions):
+            sim = deepcopy(env)
+            _, reward, terminated, truncated, _ = sim.step(action)
+            if terminated:
+                continue
+            v = self.calculate_value(t=sim.env.t, reward=reward, terminated=terminated, truncated=truncated)
+            if v > best_value:
+                best_value = v
+                best_action = action
+
+        return best_action
+
+
+class RandomRestartHillClimbingAgent(LocalSearchAgent):
+    name = 'Random_Restart_Hill_Climbing'
+
+    def __init__(self, num_actions, domain_name, n_restarts=20, horizon=5):
+        super().__init__(num_actions, domain_name)
+        self.n_restarts = n_restarts
+        self.horizon = horizon
+
+    def act(self, env):
+        action_values = np.full(self.num_actions, -np.inf)
+
+        for _ in range(self.n_restarts):
+            sim = deepcopy(env)
+            first_action = np.random.choice(self.num_actions)
+            _, reward, terminated, truncated, _ = sim.step(first_action)
+
+            if terminated:
+                continue
+
+            total = self.calculate_value(t=sim.env.t, reward=reward, terminated=terminated, truncated=truncated)
+
+            for _ in range(self.horizon - 1):
+                if terminated or truncated:
+                    break
+                a = np.random.choice(self.num_actions)
+                _, reward, terminated, truncated, _ = sim.step(a)
+                total += self.calculate_value(t=sim.env.t, reward=reward, terminated=terminated, truncated=truncated)
+
+            if total > action_values[first_action]:
+                action_values[first_action] = total
+
+        if np.all(action_values == -np.inf):
+            return -1
+        return int(np.argmax(action_values))
 
 
 class SimulatedAnnealingAgent(LocalSearchAgent):
     name = 'Simulated_Annealing_Agent'
 
-    #TODO
+    def __init__(self, num_actions, domain_name, T_0=2.0, cooling_rate=0.95, schedule='exponential'):
+        super().__init__(num_actions, domain_name)
+        self.T_0 = T_0
+        self.cooling_rate = cooling_rate
+        self.schedule = schedule
+        self.step_count = 0
+
+    def get_temperature(self):
+        n = self.step_count
+        if self.schedule == 'exponential':
+            return self.T_0 * (self.cooling_rate ** n)
+        elif self.schedule == 'linear':
+            return max(self.T_0 - self.cooling_rate * n, 1e-3)
+        else:  # logarithmic
+            return self.T_0 / np.log(n + 2)
+
+    def act(self, env):
+        T = self.get_temperature()
+        self.step_count += 1
+
+        action_values = {}
+        for action in range(self.num_actions):
+            sim = deepcopy(env)
+            _, reward, terminated, truncated, _ = sim.step(action)
+            if not terminated:
+                v = self.calculate_value(t=sim.env.t, reward=reward, terminated=terminated, truncated=truncated)
+                action_values[action] = v
+
+        if not action_values:
+            return -1
+
+        best_action = max(action_values, key=action_values.get)
+        candidate = np.random.choice(list(action_values.keys()))
+        delta = action_values[candidate] - action_values[best_action]
+
+        if delta >= 0 or (T > 1e-9 and np.random.rand() < np.exp(delta / T)):
+            return candidate
+        return best_action

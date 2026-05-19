@@ -1,0 +1,406 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[greek,english]{babel}
+\usepackage{alphabeta}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{setspace}
+
+\geometry{margin=2.5cm}
+\onehalfspacing
+
+% For local compilation: images are in AI-agents-in-ns-gym/results/
+% For Overleaf: upload the 4 PNG files and adjust path below accordingly
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray}
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue
+}
+
+\title{\textbf{Τεχνητή Νοημοσύνη -- Εργασία 2} \\ Αλγόριθμοι Τοπικής Αναζήτησης}
+\author{ΑΡΙΣΤΕΙΔΗΣ ΠΙΤΣΟΥΛΗΣ -- 2022030024 \\ ΒΑΣΙΛΕΙΟΣ ΚΑΡΑΒΑΝΑΣ -- 2021030132}
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+% ============================================================
+\section{Εισαγωγή}
+% ============================================================
+
+Στην παρούσα εργασία υλοποιούμε τρεις αλγορίθμους τοπικής αναζήτησης με στόχο την εύρεση
+της καλύτερης ακολουθίας κινήσεων σε δύο γνωστά προβλήματα ελέγχου:
+\textit{\textlatin{CartPole}} και \textit{\textlatin{MountainCar}}.
+Η βασική δυσκολία σε σχέση με κλασικές προσεγγίσεις είναι ότι τα περιβάλλοντα είναι
+\textbf{μη-στατικά} (\textlatin{non-stationary}): οι φυσικές τους παράμετροι αλλάζουν δυναμικά κατά
+την εκτέλεση, οπότε δεν μπορούμε να στηριχτούμε σε ένα σταθερό μοντέλο μετάβασης.
+
+Για την προσομοίωση αυτών των περιβαλλόντων χρησιμοποιούμε τη βιβλιοθήκη
+\texttt{\textlatin{ns-gym}}, η οποία επεκτείνει το \texttt{\textlatin{gymnasium}}
+ώστε να επιτρέπει μεταβολές παραμέτρων κατά τη διάρκεια του επεισοδίου. Πιο συγκεκριμένα:
+
+\begin{itemize}
+    \item \textbf{\textlatin{CartPole}}: η μάζα της ράβδου (\texttt{\textlatin{masspole}})
+    αυξάνεται σταδιακά μέσω \texttt{\textlatin{IncrementUpdate}}, ενώ η βαρύτητα
+    (\texttt{\textlatin{gravity}}) μεταβάλλεται τυχαία μέσω \texttt{\textlatin{RandomWalk}}.
+    \item \textbf{\textlatin{MountainCar}}: τόσο η βαρύτητα (\texttt{\textlatin{gravity}}) όσο
+    και η δύναμη του κινητήρα (\texttt{\textlatin{force}}) αυξάνονται σταδιακά μέσω δύο ανεξάρτητων
+    \texttt{\textlatin{IncrementUpdate}}.
+\end{itemize}
+
+Αυτές οι αλλαγές σημαίνουν πρακτικά ότι η συμπεριφορά του περιβάλλοντος διαφέρει από
+επεισόδιο σε επεισόδιο -- ακόμα και εντός του ίδιου επεισοδίου. Αυτό καθιστά αναγκαία τη χρήση
+\textlatin{online} μεθόδων, όπου ο πράκτορας λαμβάνει αποφάσεις βλέποντας μόνο την τρέχουσα
+κατάσταση.
+
+Οι τρεις αλγόριθμοι που υλοποιούμε --
+\textlatin{Hill Climbing, Random Restart Hill Climbing}
+και \textlatin{Simulated Annealing}
+-- βασίζονται στην ιδέα της τοπικής αναζήτησης όπως παρουσιάζεται στο κεφάλαιο 4
+του \textlatin{Russell \& Norvig}.
+
+
+% ============================================================
+\section{Αλγόριθμοι Τοπικής Αναζήτησης}
+% ============================================================
+
+\subsection{\textlatin{Hill Climbing}}
+
+Ο αλγόριθμος \textlatin{Hill Climbing} (\textlatin{HC}) επιλέγει σε κάθε βήμα την κίνηση που
+οδηγεί στη γειτονική κατάσταση με τη μεγαλύτερη τιμή. Δεν κρατά ιστορικό και δεν κοιτά
+πέρα από τον επόμενο χρονικό βήμα, οπότε είναι \textlatin{greedy}.
+
+Στο πλαίσιο της εργασίας, ο πράκτορας σε κάθε χρονική στιγμή λαμβάνει ένα αντίγραφο
+του περιβάλλοντος (\textit{\textlatin{planning env}}) και αξιολογεί κάθε δυνατή κίνηση
+προσομοιώνοντας ένα βήμα. Επιλέγεται η κίνηση που δίνει τη μεγαλύτερη τιμή σύμφωνα με τη
+συνάρτηση \texttt{\textlatin{calculate\_value}}. Αν όλες οι κινήσεις οδηγούν σε τερματισμό,
+επιστρέφεται $-1$ και ο πράκτορας επιλέγει τυχαία.
+
+\begin{lstlisting}[language={}, caption={\textlatin{Hill Climbing -- act(env)}}]
+best_action = -1,  best_value = -INF
+for a in {0, ..., |A|-1}:
+    sim = deepcopy(env)
+    _, r, term, trunc = sim.step(a)
+    if term: continue
+    v = calculate_value(t=sim.env.t, r, term, trunc)
+    if v > best_value:
+        best_value = v;  best_action = a
+return best_action
+\end{lstlisting}
+
+Ο \textlatin{HC} έχει το γνωστό μειονέκτημα ότι κολλάει σε τοπικά βέλτιστα. Στο πλαίσιο
+μας, αυτό σημαίνει ότι μπορεί να επιλέγει πάντα την ίδια κίνηση ακόμα και όταν το περιβάλλον έχει
+αλλάξει αρκετά.
+
+\subsection{\textlatin{Random Restart Hill Climbing}}
+
+Ο \textlatin{Random Restart Hill Climbing} (\textlatin{RRHC}) προσπαθεί να ξεπεράσει το
+πρόβλημα των τοπικών βέλτιστων εκκινώντας πολλαπλές τυχαίες δοκιμές και κρατώντας το καλύτερο
+αποτέλεσμα.
+
+Στην υλοποίησή μας, σε κάθε χρονική στιγμή εκτελούνται $N$ τυχαίες δοκιμές
+(\textlatin{restarts}). Κάθε δοκιμή επιλέγει τυχαία μια πρώτη κίνηση $a_0$ και στη συνέχεια
+συνεχίζει τυχαία για $H-1$ ακόμα βήματα, αθροίζοντας την αξία των καταστάσεων που επισκέπτεται.
+Η πρώτη κίνηση που αντιστοιχεί στη μεγαλύτερη αθροιστική αξία επιστρέφεται. Χρησιμοποιούμε
+$N=20$ \textlatin{restarts} και ορίζοντα $H=5$ βήματα.
+
+\begin{lstlisting}[language={}, caption={\textlatin{Random Restart HC -- act(env)}}]
+action_values[a] = -INF  for each a
+for i = 1 to N:
+    sim = deepcopy(env);  a0 = random(A)
+    _, r, term, trunc = sim.step(a0)
+    if term: continue
+    total = calculate_value(sim.env.t, r, term, trunc)
+    for j = 2 to H:
+        if term or trunc: break
+        a = random(A)
+        _, r, term, trunc = sim.step(a)
+        total += calculate_value(sim.env.t, r, term, trunc)
+    if total > action_values[a0]:
+        action_values[a0] = total
+return argmax_a action_values[a]
+\end{lstlisting}
+
+Η χρήση πολλαπλών τυχαίων δοκιμών βοηθά τον πράκτορα να «ξεφύγει» από καταστάσεις
+όπου ο \textlatin{HC} θα έκανε την ίδια επιλογή επανειλημμένα. Αυτό είναι ιδιαίτερα χρήσιμο σε
+μη-στατικά περιβάλλοντα όπου η βέλτιστη κίνηση αλλάζει με την πάροδο του χρόνου.
+
+\subsection{\textlatin{Simulated Annealing}}
+
+Ο \textlatin{Simulated Annealing} (\textlatin{SA}) εισάγει μια πιθανοτική αποδοχή χειρότερων
+κινήσεων, εμπνευσμένη από τη διαδικασία ανόπτησης μετάλλων. Η κεντρική ιδέα είναι ότι
+στην αρχή (υψηλή θερμοκρασία $T$) ο πράκτορας εξερευνά ελεύθερα, ενώ σταδιακά (καθώς το $T$
+μειώνεται) γίνεται πιο \textlatin{greedy}.
+
+Σε κάθε βήμα αξιολογούμε όλες τις διαθέσιμες κινήσεις, βρίσκουμε την καλύτερη $a^*$
+και επιλέγουμε τυχαία έναν υποψήφιο $a_c$. Αν $a_c$ είναι καλύτερος αποδεκτός. Αν είναι
+χειρότερος, γίνεται αποδεκτός με πιθανότητα $e^{\Delta / T}$, όπου
+$\Delta = V(a_c) - V(a^*) < 0$.
+
+\begin{lstlisting}[language={}, caption={\textlatin{Simulated Annealing -- act(env)}}]
+T = get_temperature();  step_count += 1
+action_values = {}
+for a in {0, ..., |A|-1}:
+    sim = deepcopy(env)
+    _, r, term, trunc = sim.step(a)
+    if not term:
+        action_values[a] = calculate_value(sim.env.t, r, term, trunc)
+if action_values is empty: return -1
+a_best = argmax action_values
+a_c    = random(action_values.keys())
+delta  = action_values[a_c] - action_values[a_best]
+if delta >= 0 or U(0,1) < exp(delta / T):
+    return a_c
+return a_best
+\end{lstlisting}
+
+\paragraph{Στρατηγικές ψύξης.}
+Πειραματιστήκαμε με τρεις διαφορετικές στρατηγικές μείωσης της θερμοκρασίας, όπου $n$
+είναι ο συνολικός αριθμός βημάτων που έχουν εκτελεστεί (δεν επαναφέρεται μεταξύ επεισοδίων):
+
+\begin{itemize}
+    \item \textbf{Εκθετική (επιλεγμένη)}:
+          $T_n = T_0 \cdot \alpha^n$, με $T_0 = 2.0$, $\alpha = 0.95$.
+    \item \textbf{Γραμμική}:
+          $T_n = \max(T_0 - \alpha \cdot n,\; \varepsilon)$, όπου $\varepsilon = 10^{-3}$.
+    \item \textbf{Λογαριθμική}:
+          $T_n = T_0 / \ln(n + 2)$.
+\end{itemize}
+
+Η εκθετική ψύξη είναι η πιο ευρέως χρησιμοποιούμενη στην πράξη γιατί μειώνει ομαλά
+τη θερμοκρασία και δίνει στον αλγόριθμο αρκετό χρόνο εξερεύνησης πριν συγκλίνει. Η λογαριθμική
+είναι η πιο αργή και θεωρητικά εγγυάται σύγκλιση στο ολικό βέλτιστο υπό ορισμένες συνθήκες,
+αλλά στην πράξη με περιορισμένα βήματα δεν αποδίδει απαραίτητα καλύτερα.
+
+
+% ============================================================
+\section{Υλοποίηση}
+\label{sec:impl}
+% ============================================================
+
+\subsection{Δομή κώδικα}
+
+Ο κώδικας οργανώνεται σε δύο φακέλους: \texttt{\textlatin{agents/}} και
+\texttt{\textlatin{test/}}. Στο αρχείο \texttt{\textlatin{agents/local\_search\_agents.py}} ορίζεται
+η αφηρημένη κλάση \texttt{\textlatin{LocalSearchAgent}} που παρέχει τις βασικές λειτουργίες, και
+στο \texttt{\textlatin{test/run\_experiments.py}} βρίσκεται ο κώδικας για τα πειράματα και τα
+γραφήματα.
+
+\subsection{Συνάρτηση αξίας}
+
+Η κλάση βάσης ορίζει τη μέθοδο \texttt{\textlatin{calculate\_value}} που υπολογίζει
+πόσο «καλή» είναι μια κατάσταση:
+
+\begin{itemize}
+    \item \textbf{\textlatin{CartPole}}: $V = r + 0.1 \cdot \mathbb{1}[\text{\textlatin{trunc}}]
+          + t \cdot \mathbb{1}[\neg\text{\textlatin{term}}]$
+
+          Θέλουμε ο πράκτορας να επιβιώσει όσο γίνεται περισσότερο, οπότε ανταμείβουμε
+          κάθε βήμα που δεν τερματίζει (ο όρος $t$).
+
+    \item \textbf{\textlatin{MountainCar}}: $V = r + 0.1 \cdot \mathbb{1}[\text{\textlatin{trunc}}]
+          - t \cdot \mathbb{1}[\neg\text{\textlatin{term}}]$
+
+          Εδώ θέλουμε ο πράκτορας να φτάσει στον στόχο όσο πιο γρήγορα γίνεται,
+          οπότε το $t$ αφαιρείται.
+\end{itemize}
+
+\subsection{Μηχανισμός \textlatin{lookahead}}
+
+Κάθε φορά που καλείται η \texttt{\textlatin{act()}}, λαμβάνουμε ένα αντίγραφο του
+τρέχοντος περιβάλλοντος μέσω \texttt{\textlatin{get\_planning\_env()}} και το τυλίγουμε με τον
+κατάλληλο \textlatin{wrapper} που τροποποιεί τη συνάρτηση ανταμοιβής. Για κάθε υποψήφια κίνηση
+δημιουργούμε ένα \texttt{\textlatin{deepcopy}} αυτού του αντιγράφου και εκτελούμε ένα βήμα
+προσομοίωσης, χωρίς να τροποποιούμε το πραγματικό περιβάλλον.
+
+Ένα τεχνικό σημείο: στην έκδοση \textlatin{gymnasium 1.2.3} που χρησιμοποιούμε, η
+κλάση \texttt{\textlatin{gym.Wrapper}} δεν προωθεί αυτόματα την πρόσβαση σε γνωρίσματα στο
+εσωτερικό περιβάλλον μέσω \texttt{\textlatin{\_\_getattr\_\_}}. Για αυτό, για να διαβάσουμε τον
+μετρητή χρόνου \texttt{\textlatin{t}} χρησιμοποιούμε \texttt{\textlatin{sim.env.t}} αντί για
+\texttt{\textlatin{sim.t}}.
+
+\subsection{\textlatin{Simulated Annealing} -- παρακολούθηση θερμοκρασίας}
+
+Ο \textlatin{SA} χρειάζεται να ξέρει πόσα βήματα έχουν εκτελεστεί για να υπολογίσει
+τη θερμοκρασία. Για αυτό, κρατάμε τον μετρητή \texttt{\textlatin{step\_count}} στο αντικείμενο
+του πράκτορα. Αυτός αυξάνεται σε κάθε κλήση της \texttt{\textlatin{act()}} και \textbf{δεν
+επαναφέρεται} μεταξύ επεισοδίων -- η θερμοκρασία δηλαδή μειώνεται συνεχώς κατά την εκτέλεση
+(σε όλα τα επεισόδια συνδυαστικά). Αυτή είναι μια σκόπιμη επιλογή: ο αλγόριθμος εξερευνά
+ελεύθερα στα πρώτα επεισόδια και γίνεται πιο \textlatin{greedy} καθώς «μαθαίνει» το περιβάλλον.
+
+
+% ============================================================
+\section{Πειραματική Διαδικασία}
+% ============================================================
+
+Ακολουθούμε την πειραματική διαδικασία που ορίζει η εκφώνηση. Για κάθε περιβάλλον
+και κάθε αλγόριθμο:
+
+\paragraph{Πείραμα 1.}
+Τρέχουμε 100 επεισόδια για κάθε τιμή του \texttt{\textlatin{max\_timesteps}}
+$\in \{10, 100, 500, 1000\}$. Σε κάθε επεισόδιο αθροίζουμε τις ανταμοιβές όπως αυτές
+επιστρέφονται από το περιβάλλον και υπολογίζουμε τη μέση τιμή από τα 100 επεισόδια.
+Το αποτέλεσμα απεικονίζεται σε γράφημα με άξονα $x$ το \texttt{\textlatin{max\_timesteps}}
+και άξονα $y$ τη μέση αθροιστική ανταμοιβή.
+
+\paragraph{Πείραμα 2.}
+Για \texttt{\textlatin{max\_timesteps}} $= 100$ τρέχουμε 1000 επεισόδια και
+απεικονίζουμε την αθροιστική ανταμοιβή ανά επεισόδιο, ώστε να φαίνεται πώς αλλάζει η
+συμπεριφορά του πράκτορα καθώς το περιβάλλον μεταβάλλεται.
+
+Η αρχικοποίηση γίνεται με \texttt{\textlatin{seed = 42 + ep}} για κάθε επεισόδιο
+\texttt{\textlatin{ep}}, εξασφαλίζοντας αναπαραγωγιμότητα. Τα πειράματα τρέχουν χωρίς
+οπτικοποίηση (\texttt{\textlatin{render\_mode=None}}) για ταχύτερη εκτέλεση. Ο κώδικας
+εκτελείται από το αρχείο \texttt{\textlatin{test/run\_experiments.py}}.
+
+
+% ============================================================
+\section{Αποτελέσματα}
+% ============================================================
+
+\subsection{\textlatin{CartPole}}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{cartpole_mean_rewards}
+    \caption{\textlatin{CartPole} -- Μέση αθροιστική ανταμοιβή συναρτήσει του
+    \texttt{\textlatin{max\_timesteps}} (100 επεισόδια ανά τιμή). Και οι τρεις αλγόριθμοι
+    επιδεικνύουν παρόμοια αύξηση της ανταμοιβής καθώς αυξάνονται τα επιτρεπόμενα βήματα.}
+    \label{fig:cartpole_mean}
+\end{figure}
+
+Στο Σχήμα~\ref{fig:cartpole_mean} παρατηρούμε ότι και οι τρεις αλγόριθμοι
+αποδίδουν παρόμοια στο \textlatin{CartPole}. Η μέση αθροιστική ανταμοιβή αυξάνεται με
+το \texttt{\textlatin{max\_timesteps}}, κάτι που είναι αναμενόμενο: αφού η ανταμοιβή είναι
+$+1$ ανά βήμα επιβίωσης, περισσότερα διαθέσιμα βήματα σημαίνουν δυνητικά μεγαλύτερη
+αθροιστική ανταμοιβή. Ο \textlatin{HC} ανταγωνίζεται αποτελεσματικά τους υπόλοιπους
+αλγορίθμους, αποδεικνύοντας ότι η \textlatin{greedy} ενός βήματος είναι επαρκής για
+αντιδραστικές αποφάσεις εξισορρόπησης. Ο \textlatin{SA} εμφανίζει ελαφρώς μεγαλύτερη
+διακύμανση λόγω της στοχαστικής αποδοχής, ενώ ο \textlatin{RRHC} προσφέρει σταθερή
+απόδοση μέσω της πολλαπλής εξερεύνησης.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{cartpole_episode_rewards}
+    \caption{\textlatin{CartPole} -- Αθροιστική ανταμοιβή ανά επεισόδιο
+    (\texttt{\textlatin{max\_timesteps}}=100, 1000 επεισόδια). Καμία συστηματική
+    υποβάθμιση δεν παρατηρείται παρά τη συνεχή μεταβολή των παραμέτρων.}
+    \label{fig:cartpole_eps}
+\end{figure}
+
+Στο Σχήμα~\ref{fig:cartpole_eps} απεικονίζονται οι ανταμοιβές ανά επεισόδιο
+για 1000 επεισόδια. Η απόδοση παραμένει σε υψηλά επίπεδα καθ' όλη τη διάρκεια, χωρίς
+συστηματική μείωση παρά τη συνεχή αύξηση της \texttt{\textlatin{masspole}} και την τυχαία
+μεταβολή της \texttt{\textlatin{gravity}}. Αυτό υποδηλώνει ότι η \textlatin{one-step lookahead}
+προσέγγιση είναι αρκετά ανθεκτική στη μη-στασιμότητα για το \textlatin{CartPole}:
+το άμεσο σήμα ανταμοιβής παρέχει επαρκή πληροφορία για σωστές αποφάσεις ανεξαρτήτως
+παραμέτρων.
+
+\subsection{\textlatin{MountainCar}}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{mountaincar_mean_rewards}
+    \caption{\textlatin{MountainCar} -- Μέση αθροιστική ανταμοιβή συναρτήσει του
+    \texttt{\textlatin{max\_timesteps}} (100 επεισόδια). Και οι τρεις αλγόριθμοι αποτυγχάνουν
+    να φτάσουν στον στόχο στην πλειονότητα των επεισοδίων -- η ανταμοιβή πλησιάζει τη
+    γραμμή $y = -\text{\textlatin{max\_timesteps}}$.}
+    \label{fig:mcar_mean}
+\end{figure}
+
+Στο Σχήμα~\ref{fig:mcar_mean} παρατηρούμε ότι και οι τρεις αλγόριθμοι
+σχεδόν δεν διαχωρίζονται -- η μέση ανταμοιβή ισούται κατά προσέγγιση με
+$-\texttt{\textlatin{max\_timesteps}}$, πράγμα που σημαίνει ότι ο πράκτορας
+δεν φτάνει ποτέ στον στόχο και αθροίζει $-1$ ανά βήμα. Αυτό αποκαλύπτει το
+βασικό αδύνατο σημείο της \textlatin{one-step lookahead} προσέγγισης για το
+\textlatin{MountainCar}: το πρόβλημα απαιτεί συντονισμένες πολλαπλές κινήσεις
+(συσσώρευση ορμής με εναλλαγή φορά) τις οποίες δεν μπορεί να ανακαλύψει μια
+στρατηγική που κοιτά μόνο ένα βήμα μπροστά.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{mountaincar_episode_rewards}
+    \caption{\textlatin{MountainCar} -- Αθροιστική ανταμοιβή ανά επεισόδιο
+    (\texttt{\textlatin{max\_timesteps}}=100, 1000 επεισόδια). Σχεδόν όλα τα επεισόδια
+    τερματίζουν με $-100$. Σπάνιες εξαιρέσεις δείχνουν κερδισμένα επεισόδια.}
+    \label{fig:mcar_eps}
+\end{figure}
+
+Στο Σχήμα~\ref{fig:mcar_eps} διακρίνεται η στενά συγκεντρωμένη ανταμοιβή
+$\approx -100$ για σχεδόν όλα τα επεισόδια. Εμφανίζονται σποραδικά αιχμές (κυρίως
+από \textlatin{RRHC} και \textlatin{SA}), που αντιστοιχούν σε επεισόδια όπου η τυχαία
+εξερεύνηση βοήθησε τον πράκτορα να φτάσει κοντά ή και στον στόχο. Παρατηρείται επίσης
+μια ελαφρά τάση βελτίωσης στον \textlatin{SA} στα μεταγενέστερα επεισόδια, γεγονός που
+ίσως οφείλεται στη μείωση της θερμοκρασίας -- ο αλγόριθμος γίνεται πιο
+\textlatin{greedy} και μπορεί να αξιοποιεί καλύτερα την αυξημένη δύναμη του κινητήρα
+(\texttt{\textlatin{force}}) που συσσωρεύεται μέσω \texttt{\textlatin{IncrementUpdate}}.
+
+
+% ============================================================
+\section{Συμπεράσματα}
+% ============================================================
+
+Υλοποιήσαμε τρεις αλγορίθμους τοπικής αναζήτησης --
+\textlatin{HC, RRHC} και \textlatin{SA} -- για \textlatin{online} λήψη αποφάσεων σε
+μη-στατικά περιβάλλοντα. Και οι τρεις χρησιμοποιούν ένα βήμα προσομοίωσης
+(\textlatin{lookahead}) για να αξιολογήσουν κάθε υποψήφια κίνηση χωρίς να «ξέρουν»
+τη δυναμική του συστήματος.
+
+Τα κύρια συμπεράσματα:
+
+\begin{itemize}
+
+    \item \textbf{\textlatin{CartPole} (αντιδραστική εργασία):}
+    Και οι τρεις αλγόριθμοι αποδίδουν παρόμοια καλά. Ο \textlatin{HC} είναι
+    ανταγωνιστικός, επειδή η εξισορρόπηση ράβδου είναι αντιδραστική εργασία: η
+    \textlatin{greedy} επιλογή της καλύτερης άμεσης κίνησης είναι επαρκής. Ο \textlatin{RRHC}
+    (ορίζοντας $H=5$, 20 επανεκκινήσεις) προσφέρει ελαφρώς μεγαλύτερη σταθερότητα σε βάρος
+    υπολογιστικού κόστους. Ο \textlatin{SA} δεν παρουσιάζει σαφές πλεονέκτημα εδώ: η
+    στοχαστική αποδοχή χειρότερων κινήσεων δεν βοηθά σε περιβάλλον όπου τα τοπικά
+    βέλτιστα δεν αποτελούν σημαντικό πρόβλημα.
+
+    \item \textbf{Ανθεκτικότητα στη μη-στασιμότητα (\textlatin{CartPole}):}
+    Παρά τη συνεχή αύξηση της \texttt{\textlatin{masspole}} και την τυχαία
+    μεταβολή της \texttt{\textlatin{gravity}}, δεν παρατηρείται συστηματική υποβάθμιση
+    της απόδοσης κατά τη διάρκεια των 1000 επεισοδίων. Αυτό υποδηλώνει ότι το άμεσο
+    σήμα ανταμοιβής είναι αρκετά πλούσιο ώστε να οδηγεί σε σωστές αποφάσεις
+    ανεξαρτήτως των τιμών των παραμέτρων.
+
+    \item \textbf{\textlatin{MountainCar} (εργασία μακράς χρονικής ορατότητας):}
+    Και οι τρεις αλγόριθμοι αποτυγχάνουν σχεδόν πλήρως. Το πρόβλημα απαιτεί
+    συντονισμένη κίνηση σε πολλά βήματα (συσσώρευση ορμής), κάτι που η \textlatin{one-step
+    lookahead} δεν μπορεί να αξιολογήσει. Το άμεσο σήμα ανταμοιβής ($-1$ σε κάθε βήμα)
+    δεν παρέχει χρήσιμη πληροφορία διαφοροποίησης μεταξύ κινήσεων.
+
+    \item \textbf{Προτάσεις βελτίωσης:}
+    Για το \textlatin{MountainCar}, ένας μεγαλύτερος ορίζοντας \textlatin{lookahead}
+    (π.χ. $H \gg 5$ στον \textlatin{RRHC}) ή πιο ενημερωτική διαμόρφωση ανταμοιβής
+    (π.χ. ανταμοιβή βάσει θέσης) θα βελτίωναν σημαντικά την απόδοση. Εναλλακτικά,
+    προσεγγίσεις \textlatin{model-based} που μαθαίνουν τη δυναμική σταδιακά θα ήταν
+    πιο κατάλληλες για τη φύση του προβλήματος αυτού.
+
+\end{itemize}
+
+\end{document}
